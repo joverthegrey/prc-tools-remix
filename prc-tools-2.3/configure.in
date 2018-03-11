@@ -209,7 +209,7 @@ fi
 
 if test $enable_generic = yes; then
   config_subdirs="$config_subdirs make"
-  output_files="$output_files doc/Makefile doc/version.texi include/Makefile
+  output_files="$output_files include/Makefile
 		tools/Makefile"
   all_subdirs="$all_subdirs make doc include tools"
 
