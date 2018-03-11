@@ -86,7 +86,7 @@ doc: @doc_prereqs@
 
 tools: @tools_prereqs@
 
-gdb doc include tools $(extra_subdirs):
+gdb include tools $(extra_subdirs):
 	cd $@ && $(MAKE) all
 
 make:
