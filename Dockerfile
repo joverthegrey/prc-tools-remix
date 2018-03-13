@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 		gperf \
 		byacc \
 		flex \
+		autoconf \
 		gcc-multilib \
 		g++ \
 		make \
@@ -20,6 +21,7 @@ RUN cd /opt && git clone https://github.com/jichu4n/palm-os-sdk.git palmdev && \
 
 # Build compilers
 ENV MAKEINFO ""
+ENV CFLAGS=-Os
 WORKDIR /root
 RUN git clone https://github.com/tomari/prc-tools-remix.git && \
 	cd prc-tools-remix && \
@@ -30,7 +32,8 @@ RUN git clone https://github.com/tomari/prc-tools-remix.git && \
 		--disable-nls \
 		--disable-doc \
 		--with-palmdev-prefix=/opt/palmdev \
-		--host=i686-linux-gnu && \
+		--host=i686-linux-gnu \
+		--build=i686-linux-gnu && \
 	make && \
 	make install && \
 	cd /root && rm -fr prc-tools-remix
