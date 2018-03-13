@@ -2,14 +2,14 @@ FROM buildpack-deps:xenial-scm
 
 # Install prerequsites
 RUN apt-get update && apt-get install -y --no-install-recommends \
-		flex \
-		bison \
 		gperf \
+		byacc \
+		flex \
 		gcc-multilib \
 		g++ \
 		make \
 		libncurses5-dev && \
-	apt-get remove -y texinfo && \
+	apt-get remove -y bison texinfo && \
 	apt-get clean all && \
 	rm -rf /var/lib/apt/lists/*
 
