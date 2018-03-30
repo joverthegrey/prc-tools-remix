@@ -1,6 +1,8 @@
 prc-tools remix
 ~~~~~~~~~~~~~~~
 
+Automated Docker build is available at https://hub.docker.com/r/tomari/prc-tools-remix/
+
 Overview
 ^^^^^^^^
 
@@ -30,6 +32,7 @@ To build from source on Linux, e.g., on Ubuntu:
 [source,bash]
 ----
 sudo apt-get install \
+    texinfo \
     flex \
     bison \
     gperf
