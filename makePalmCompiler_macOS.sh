@@ -12,6 +12,7 @@ cd $DIR/output
 make
 sudo make install
 sudo palmdev-prep
+sudo palmdev-prep --default 3.5
 
 # pilrc
 rm -rf $DIR/pilrc_out
