@@ -1,6 +1,13 @@
 prc-tools remix
 ~~~~~~~~~~~~~~~
 
+I have done my best to make this a 1click compile and install.
+
+If you are on Mac OS you need brew installed.
+The prerequisites are "texinfo flex bison gperf" and "sudo".
+Then just run the install script for your platform.
+When asked you must give the script root to copy the compiler to /usr/local/bin.
+
 Overview
 ^^^^^^^^
 

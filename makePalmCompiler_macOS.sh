@@ -7,5 +7,7 @@ echo "Building from '$DIR'"
 rm -rf $DIR/output
 mkdir $DIR/output
 cd $DIR/output
-../prc-tools-2.3/configure --enable-languages=c,c++ --enable-targets=m68k-palmos,arm-palmos --disable-nls --with-palmdev-prefix=../palmSdk/sdk-5r4 --host=i686-apple-darwin
+../prc-tools-2.3/configure --enable-languages=c,c++ --enable-targets=m68k-palmos,arm-palmos --disable-nls --with-palmdev-prefix=../palmSdk --host=i686-apple-darwin
 make
+sudo make install
+sudo palmdev-prep
