@@ -1,5 +1,5 @@
-prc-tools remix
-~~~~~~~~~~~~~~~
+Complete Palm OS development Toolkit
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 I have done my best to make this a 1click compile and install.
 
