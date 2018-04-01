@@ -4,8 +4,9 @@ Complete Palm OS development Toolkit
 I have done my best to make this a 1click compile and install.
 
 If you are on Mac OS you need brew installed.
+On linux you need the old texinfo-4.13(http://ftp.gnu.org/gnu/texinfo/texinfo-4.13.tar.gz) installed, this may be bundled later.
 
-The prerequisites are "bash texinfo flex bison gperf libncurses-dev autoconf gcc g++ make" and "sudo".
+The prerequisites are "bash flex texinfo(v4.13 is required) bison gperf libncurses-dev autoconf gcc g++ make" and "sudo".
 
 Then just run the install script for your platform.
 

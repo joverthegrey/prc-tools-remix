@@ -31,6 +31,6 @@ make
 sudo cp ./src/pilot-xfer /usr/local/bin
 sudo mkdir -p /usr/local/bin/.libs
 sudo cp -a ./src/.libs/. /usr/local/bin/.libs
-sudo cp ./libpisock/.libs/libpisock.9.0.0.so /usr/local/lib
-sudo cp ./libpisock/.libs/libpisock.9.so /usr/local/lib
+sudo cp ./libpisock/.libs/libpisock.so.9.0.0 /usr/local/lib
+sudo cp ./libpisock/.libs/libpisock.so.9 /usr/local/lib
 sudo cp ./libpisock/.libs/libpisock.so /usr/local/lib
