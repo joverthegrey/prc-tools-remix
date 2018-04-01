@@ -29,7 +29,7 @@ cd $DIR/pilot-link_out
 ../pilot-link-0.12.0-pre2/configure --with-libpng
 make
 sudo cp ./src/pilot-xfer /usr/local/bin
-mkdir -p /usr/local/bin/.libs
+sudo mkdir -p /usr/local/bin/.libs
 sudo cp -a ./src/.libs/. /usr/local/bin/.libs
 sudo cp ./libpisock/.libs/libpisock.9.0.0.dylib /usr/local/lib
 sudo cp ./libpisock/.libs/libpisock.9.dylib /usr/local/lib
