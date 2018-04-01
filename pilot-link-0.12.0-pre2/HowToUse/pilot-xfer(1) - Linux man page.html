@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta http-equiv="content-type" content="text/html; charset=windows-1252">
+<title>pilot-xfer(1) - Linux man page</title>
+<!-- base href="https://linux.die.net/man/1/pilot-xfer" -->
+<link rel="canonical" href="https://linux.die.net/man/1/pilot-xfer">
+<link rel="stylesheet" type="text/css" href="pilot-xfer(1)%20-%20Linux%20man%20page_files/white.css">
+<link rel="shortcut icon" href="https://linux.die.net/favicon.ico" type="image/x-icon">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="pilot-xfer allows the user to install databases contained in the standard .prc (Palm Resource Database), .pdb (Palm Record Database), and .pqa (Palm Query ...">
+<script type="text/javascript" async="" src="pilot-xfer(1)%20-%20Linux%20man%20page_files/ga.js"></script><script type="text/javascript">
+<!--
+var _gaq = _gaq || [];_gaq.push(['_setAccount', 'UA-50820-6']);_gaq.push(['_trackPageview']);
+window.google_analytics_uacct = 'UA-50820-6';
+// -->
+</script>
+</head>
+
+<body>
+<div id="bg">
+<div id="logo">
+<a href="https://www.die.net/"><img src="pilot-xfer(1)%20-%20Linux%20man%20page_files/logo.svg" alt="die.net" onerror="this.onerror=null; this.src='/style/logo.png'" width="120" height="120"></a>
+</div>
+<div id="content">
+
+<!-- google_ad_section_start -->
+<h1>pilot-xfer(1) - Linux man page</h1>
+
+<h2>Name</h2>
+
+<p>pilot-xfer - Backup, sync, and restore databases from a Palm handheld device.
+</p><h2>Section</h2>
+
+<p>pilot-link: Userland conduits
+</p><h2>Synopsis</h2>
+<div id="adright">
+<script async="" src="pilot-xfer(1)%20-%20Linux%20man%20page_files/adsbygoogle.js"></script>
+<ins class="adsbygoogle" style="display:inline-block;width:336px;height:280px" data-ad-client="ca-pub-5823754184406795" data-ad-slot="7130739364"></ins>
+<script>
+(adsbygoogle = window.adsbygoogle || []).push({});
+</script>
+</div>
+
+
+<p><i>pilot-xfer</i> [<b>-p</b> &lt;<b>port</b>&gt;] [<b>-e</b> &lt;<i>file</i>&gt;] [<b>-b</b>] [<b>-u</b>] [<b>-s</b>] &lt;<i>directory</i>&gt;
+
+</p><p>or
+</p><p><i>pilot-xfer</i> [<b>-p</b> &lt;<b>port</b>&gt;] [<b>-r</b> &lt;<b>directory</b>&gt;] [<b>-l</b>] [<b>-L</b>] [<b>-P</b>] [<b>-f</b> &lt;<b>dbname</b>&gt;]
+[<b>-d</b> &lt;<b>dbname</b>&gt;] [<b>-i</b> &lt;<b>dbname</b>&gt;] [<b>-m</b> &lt;<i>file</i>&gt;] ...
+</p><p>Use exactly one of -brsudfimlI; mix in -aexDPv, --rom and with-os.
+</p><h2>Description</h2>
+
+<p>This is the swiss-army-knife of the entire pilot-link suite.
+</p><p><i>pilot-xfer</i> allows the user to install databases contained 
+in the standard .prc (Palm Resource Database), .pdb (Palm Record 
+Database), and .pqa (Palm
+Query Application) formats onto a Palm, retrieve databases from the 
+Palm, list the databases contained in a Palm, backup or restore all of 
+the databases at
+once as well as many other powerful operations performed on a Palm 
+handheld device.
+</p><h2>Options</h2>
+
+<p><b>pilot-xfer options</b>
+</p><dl compact="compact">
+<dt>Archive files which have been removed from the Palm to &lt;<i>dir</i>&gt; instead of just deleting (unlinking) them.
+<pre class="code"><b>   -a</b>, <b>--archive
+</b>   &lt;<i>dir</i>&gt;</pre>Back up the Palm into the specified directory (which will be created if it does not already exist).
+<pre class="code"><b>   -b</b>, <b>--backup
+</b>   &lt;<i>dir</i>&gt;</pre>Show information on available cards
+<pre class="code"><b>   -C</b>, <b>--cardinfo
+
+</b></pre>Permanently delete the specified <b>database</b>(s) by name (without extension). Obviously, be very careful with this one.
+<pre class="code">--delete &lt;<b>dbname</b>&gt;</pre>Modify <b>-l</b>, <b>-i</b> or <b>-f</b> to use VFS <i>dir</i> instead of internal storage (see examples section for usage)
+<pre class="code"><b>   -D</b>,
+<b>   --vfsdir</b>=<i>dir
+
+</i></pre>Reads a list of databases from &lt;<i>file</i>&gt; and prevents <b>--backup</b>, <b>--sync</b>, or <b>--update</b> from operating on the listed <b>database</b>(s).
+A
+ maximum of 100 databases can be excluded. Databases should be specified
+ by name without the extension, as displayed with --list, in any order.
+
+<pre class="code"><b>   -e</b>, --exclude=
+<i>   &lt;</i><b>file</b>&gt;</pre>Fetch each specified database out of the Palm into the current directory.
+<p>Obsolete. Replaced by <b>--rom</b> in v0.12.
+</p><pre class="code"><b>   -F</b>, <b>--Flash
+
+</b></pre>Install each specified file into the Palm. Wildcards are valid with this syntax and multiple files may be listed at once.
+<pre class="code"><b>   -i</b>, --install
+   &lt;<i>file</i>&gt; [...]</pre>Note: the behavior of list has changed in version 0.12 and later
+<p>List all the databases in the Palm, including OS-specific native databases.
+</p><pre class="code"><b>   -l</b>, <b>--list
+
+</b></pre>Unsupported in 0.12 - see <b>-l</b>
+<pre class="code"><b>   -L</b>, <b>--Listall
+
+</b></pre>Adds the records in each specified file into the corresponding Palm database.
+<pre class="code"><b>   -m</b>, <b>--merge
+</b>   &lt;<i>file1</i>&gt; &lt;file2&gt; [...]</pre>Obsolete. Replaced by <b>--with-os</b> in v0.12 and later
+<pre class="code"><b>   -O</b>, --<b>Osflash
+
+</b></pre>Purge any deleted data that haven't been cleaned up by a full 
+synchronization (this is a safe operation, and will prevent your Palm 
+from accumulating unused
+data if you delete records but aren't syncing with a PIM.) The only 
+information you can lose is archived but un-synchronized records.
+<pre class="code"><b>   -P</b>, <b>--Purge
+
+</b></pre>Installs all files contained in the named directory to the 
+Palm. (Use this to restore your Palm after a hard reset has cleared and 
+wiped its memory, using
+your backup directory as a baseline).
+<pre class="code"><b>   -r</b>, <b>--restore
+</b>   &lt;<i>dir</i>&gt;</pre>Modifies <b>-b</b>, <b>-u</b>, and <b>s</b> , to back up non-OS dbs from the internal Flash ROM
+<pre class="code"><b>   --rom
+
+</b></pre>Backs up the Palm into the specified directory (which will be 
+created if it does not already exist). Any Palm databases which have not
+ been modified or
+created since the versions stored in the specified directory will not be
+ backed up.
+<p><i>NOTE</i>: Any Palm databases which have been deleted will have their corresponding backup file removed.
+</p><pre class="code"><b>   -s</b>, <b>--sync
+</b>   &lt;<i>dir</i>&gt;</pre>Not supported in v0.12. No replacement.
+<pre class="code"><b>   -S</b>, <b>--novsf
+
+</b></pre>Modifies <b>-b</b>, <b>-u</b>, and <b>s</b> , to back up OS databases from internal Flash ROM.
+<pre class="code"><b>   --with-os
+
+</b></pre>Backs up the Palm into the specified directory (which will be 
+created if it does not already exist). Any Palm databases which have not
+ been modified or
+created since the versions stored in the specified directory will not be
+ backed up.
+<pre class="code"><b>   -u</b>, <b>--update
+
+</b></pre>This will back up the UnsavedPreferences.prc file from the 
+Palm. Normally this file is not backed up by normal means (Palm 
+recommends that you do not
+restore this file upon restoration of your device using <b>--restore</b>.
+<p>This also modifies the behavior of <b>--backup</b>, <b>--sync</b>, and <b>--update</b>.
+</p><pre class="code"><b>   -I</b>, <b>--Illegal
+
+</b></pre>Execute a shell command for intermediate processing. All 
+commands will be done, from left to right on the command-line, before 
+the connection to the Palm
+device is made.
+<pre class="code"><b>   -x</b>, <b>--exec=command
+
+</b></pre>
+</dt></dl>
+
+<p><b>Conduit Options</b>
+</p><dl compact="compact">
+<dt>Use device file &lt;<i>port</i>&gt; to communicate with the Palm handheld. If this is not specified, <i>pilot-xfer</i> will look for the <i>$PILOTPORT</i>
+environment variable. If neither are found, <i>pilot-xfer</i> will print the usage information.
+<pre class="code"><b>   -p</b>, <b>--port
+</b>   &lt;<b>port</b>&gt;</pre>Display version of <i>pilot-xfer</i> and exit without connecting.
+<pre class="code"><b>   -v</b>, <b>--version
+
+</b></pre>
+</dt></dl>
+
+<p><b>Help Options</b>
+</p><dl compact="compact">
+<dt>Display the help synopsis for <i>pilot-xfer</i> and exit without connecting.
+<pre class="code"><b>   -h</b>, <b>--help
+
+</b></pre>Display a brief usage message and exit without connecting.
+<pre class="code"><b>   --usage
+
+</b></pre>
+</dt></dl>
+<h2>Usage</h2>
+
+<p>The program will attempt to connect to a target Palm handheld device 
+and specified port and perform the requested options specified by the 
+user on the
+commandline.
+</p><h2>Examples</h2>
+
+<p>To perform a full backup of your Palm handheld:
+</p><p># using long options
+</p><pre class="code"><i>   pilot-xfer</i> <b>--port</b> <i>/dev/pilot</i> <b>--backup</b> <i>$HOME/pilot/Backup
+
+</i></pre># or over IrDA, using short options
+<pre class="code"><i>   pilot-xfer</i> <b>-p</b> <i>/dev/ircomm0</i> <b>-b</b> <i>$HOME/pilot/Backup
+
+</i></pre>To restore that backup to a non-standard serial port (for 
+example, to a xcopilot or POSE session, assuming you have xcopilot or 
+POSE configured properly for
+this operation, see the appropriate man pages for details on configuring
+ your emulator):
+<pre class="code"><i>   pilot-xfer</i> <b>-p</b> <i>/dev/ttyqe</i> <b>--restore</b> <i>$HOME/pilot/Backup
+
+</i></pre>To fetch a file that is on your Palm handheld, such as the 
+Palm Address Book database, you could do the following. This will 
+connect to /dev/pilot and
+retrieve the records found in AddressDB and place them in a local file 
+called AddressDB.pdb (Palm Record Database).
+<pre class="code"><i>   pilot-xfer</i> <b>-p</b> <i>/dev/pilot</i> <b>--fetch AddressDB
+
+</b></pre>This will connect to your Palm device and install the 
+application Foo (in Foo.prc) to your external storage card (typically an
+ SD or MMC card) in the
+directory /Palm/Launcher on that card, using VFS.
+<pre class="code"><i>   pilot-xfer</i> <b>-p</b> <i>/dev/pilot</i> <b>-i Foo.prc -D /Palm/Launcher
+
+</b></pre>
+<h2>Author</h2>
+
+<p><i>pilot-xfer</i> written by Kenneth Albanowski. This manual page was
+ originally written by Kenneth Albanowski and David H. Silber. 
+Completely rewritten by
+David A. Desrosiers. Updated for 0.12 by Neil Williams &lt; <a href="mailto:linux@codehelp.co.uk">linux@codehelp.co.uk</a> &gt; .
+</p><h2>Bugs</h2>
+
+<p><b>Known Bugs</b>
+</p><dl compact="compact">
+<dt><b>--backup</b> will currently truncate/corrupt pdb/prc files if the
+ communication to the device is interrupted during sync (such as 
+removing the Palm from
+the cradle, or a temporary network hiccup during a NetSync). Ideally, 
+this should restore the original file, or delete the corrupted version 
+and restore the
+original version back into place, but presently.. it does not.
+</dt></dl>
+
+<p><b>Reporting Bugs</b>
+</p><dl compact="compact">
+<dt>We have an online bug tracker. Using this is the only way to ensure 
+that your bugs are recorded and that we can track them until they are 
+resolved or
+closed. Reporting bugs via email, while easy, is not very useful in 
+terms of accountability. Please point your browser to <a href="http://bugs.pilot-link.org/">http://bugs.pilot-link.org</a>:
+<a href="http://bugs.pilot-link.org/">http://bugs.pilot-link.org</a> and report your bugs and issues there.
+</dt></dl>
+<h2>Copyright</h2>
+
+<p>This program is free software; you can redistribute it and/or modify 
+it under the terms of the GNU General Public License as published by the
+ Free Software
+Foundation; either version 2 of the License, or (at your option) any 
+later version.
+</p><p>This program is distributed in the hope that it will be useful, 
+but WITHOUT ANY WARRANTY; without even the implied warranty of 
+MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE. See the GNU General Public License for more 
+details.
+</p><p>You should have received a copy of the GNU General Public License
+ along with this program; if not, write to the Free Software Foundation,
+ Inc., 51 Franklin
+St, Fifth Floor, Boston, MA 02110-1301, USA.
+</p><h2>See Also</h2>
+
+<p><b><a href="https://linux.die.net/man/7/pilot-link">pilot-link</a></b>(7)
+
+<!-- google_ad_section_end -->
+</p><h2>Referenced By</h2>
+<b><a href="https://linux.die.net/man/1/ietf2datebook" rel="nofollow">ietf2datebook</a></b>(1)
+<div id="adbottom">
+<script async="" src="pilot-xfer(1)%20-%20Linux%20man%20page_files/adsbygoogle.js"></script>
+<ins class="adsbygoogle" style="display:inline-block;width:336px;height:280px" data-ad-client="ca-pub-5823754184406795" data-ad-slot="8789940313"></ins>
+<script>
+(adsbygoogle = window.adsbygoogle || []).push({});
+</script>
+</div>
+
+</div>
+<div id="menu">
+<dl>
+<dt>Site Search</dt>
+<dd>
+<form id="cse-search-box-menu" action="https://www.die.net/search/">
+<input name="q" size="10" type="text">
+<input name="sa" value="Search" type="hidden">
+<input name="ie" value="ISO-8859-1" type="hidden">
+<input name="cx" value="partner-pub-5823754184406795:54htp1rtx5u" type="hidden">
+<input name="cof" value="FORID:9" type="hidden">
+</form>
+<script type="text/javascript">
+<!--
+document.forms["cse-search-box-menu"].action = "https://www.die.net/search/";
+// -->
+</script>
+</dd></dl>
+
+
+
+<dl>
+<dt>Library</dt>
+<dd><a href="https://linux.die.net/">linux docs</a></dd>
+<dd><a href="https://linux.die.net/man/">linux man pages</a></dd>
+<dd><a href="https://www.die.net/musings/page_load_time/">page load time</a></dd>
+</dl>
+<dl>
+<dt>Toys</dt>
+<dd><a href="https://www.die.net/earth/">world sunlight</a></dd>
+<dd><a href="https://www.die.net/moon/">moon phase</a></dd>
+<dd><a href="http://trace.die.net/">trace explorer</a></dd>
+</dl>
+
+
+<dl>
+<dt><a href="https://linux.die.net/man/1/"><img src="pilot-xfer(1)%20-%20Linux%20man%20page_files/back.gif" alt="Back" width="20" height="22"></a></dt><dd></dd>
+</dl>
+</div></div>
+<script type="text/javascript">
+<!--
+if (top.location != self.location) top.location = self.location;
+if (/[?&][pq]=/.test(document.referrer)) document.write(unescape("%3Cscript src='/style/highlight.js' type='text/javascript'%3E%3C/script%3E"));
+function googleTranslateElementInit() {new google.translate.TranslateElement({pageLanguage: 'en', floatPosition: google.translate.TranslateElement.FloatPosition.TOP_RIGHT, gaTrack: true, gaId: 'UA-50820-6'});}
+if (!/^en/i.test(window.navigator.userLanguage||window.navigator.language)) document.write(unescape("%3Cscript src='//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit' type='text/javascript'%3E%3C/script%3E"));
+(function() {
+var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+})();
+// -->
+</script>
+
+
+</body></html>

@@ -21,3 +21,16 @@ cd $DIR/pilrc_out
 ../pilrc/unix/configure
 make
 sudo cp ./pilrc /usr/local/bin
+
+# pilot-xfer
+rm -rf $DIR/pilot-link_out
+mkdir $DIR/pilot-link_out
+cd $DIR/pilot-link_out
+../pilot-link-0.12.0-pre2/configure --with-libpng
+make
+sudo cp ./src/pilot-xfer /usr/local/bin
+mkdir -p /usr/local/bin/.libs
+sudo cp -a ./src/.libs/. /usr/local/bin/.libs
+sudo cp ./libpisock/.libs/libpisock.9.0.0.so /usr/local/lib
+sudo cp ./libpisock/.libs/libpisock.9.so /usr/local/lib
+sudo cp ./libpisock/.libs/libpisock.so /usr/local/lib
