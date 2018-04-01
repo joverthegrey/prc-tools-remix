@@ -2,7 +2,7 @@
  * @(#)util.c
  *
  * Copyright 1997-1999, Wes Cherry   (mailto:wesc@technosis.com)
- *           2000-2004, Aaron Ardiri (mailto:aaron@ardiri.com)
+ *           2000-2005, Aaron Ardiri (mailto:aaron@ardiri.com)
  * All rights reserved.
  * 
  * This program is free software; you can redistribute it and/or modify
@@ -73,9 +73,9 @@ static VOID WriteOutResourceDB(void);
 DEFPL(PLEXRESOURCEDIR)
 typedef struct RESOURCEDIRENTRY
 {
-  int type[4];
-  int id;
-  int offset;
+  p_int type[4];
+  p_int id;
+  p_int offset;
 } RESOURCEDIRENTRY;
 
 #define szRESOURCEDIRENTRY "b4,w,l"
@@ -130,12 +130,18 @@ void FreeAccessPathsList(void)
 |		function that things like the CW plugin need to override.
 -------------------------------------------------------------JohnM-----------*/
 VOID
-Diagnostic(BOOL fError, const char *filename, int lineno,
+Diagnostic(BOOL fError, const FILELINE *pos,
            const char *szFormat, va_list *args)
 {
-  if (filename)
+  if (pos && pos->szFilename)
     fprintf(stderr, vfVSErrors? "%s(%d): %s : " : "%s:%d: %s: ",
-            filename, lineno, fError? "error" : "warning");
+            pos->szFilename, pos->line, fError? "error" : "warning");
+  else
+  {
+    fprintf(stderr, "pilrc: ");
+    if (!fError)
+      fprintf(stderr, vfVSErrors? "%s : " : "%s: ", "warning");
+  }
 
   vfprintf(stderr, szFormat, *args);
   fprintf(stderr, "\n");
@@ -155,7 +161,7 @@ Error(const char *szFormat, ...)
 {
   va_list args;
   va_start(args, szFormat);
-  Diagnostic(fTrue, NULL, 0, szFormat, &args);
+  Diagnostic(fTrue, NULL, szFormat, &args);
   va_end(args);
 }
 
@@ -164,7 +170,7 @@ ErrorLine(const char *szFormat, ...)
 {
   va_list args;
   va_start(args, szFormat);
-  Diagnostic(fTrue, vIn.szFilename, vIn.line, szFormat, &args);
+  Diagnostic(fTrue, &vIn.file, szFormat, &args);
   va_end(args);
 }
 
@@ -173,7 +179,7 @@ WarningLine(const char *szFormat, ...)
 {
   va_list args;
   va_start(args, szFormat);
-  Diagnostic(fFalse, vIn.szFilename, vIn.line, szFormat, &args);
+  Diagnostic(fFalse, &vIn.file, szFormat, &args);
   va_end(args);
 }
 
@@ -497,8 +503,14 @@ OpenResDBFile(const char *sz)
 {
   static BOOL registered = fFalse;
 
+  FILE *f;
+
   szOutResDBFile = MakeFilename("%s", sz);
   szTempFile = MakeTempFilename();
+
+  f = fopen(szTempFile, "wb");
+  if (f)
+    fclose(f);
 
   if (!registered)
   {
@@ -848,7 +860,8 @@ WriteOutResourceDB(void)
    * to encounter.  
    */
 
-  intstrncpy(head.name, (vfPrcName) ? vfPrcName : szOutResDBFile, 32);
+  intstrncpy(head.name, (vfPrcName) ? vfPrcName : szOutResDBFile, 31);
+  head.name[31] = 0;
   head.attr = 1;                                 /* dmHdrAttrResDB */
   head.version = 1;
 

@@ -1,9 +1,8 @@
-
 /*
  * @(#)pilrc.h
  *
  * Copyright 1997-1999, Wes Cherry   (mailto:wesc@technosis.com)
- *           2000-2004, Aaron Ardiri (mailto:aaron@ardiri.com)
+ *           2000-2005, Aaron Ardiri (mailto:aaron@ardiri.com)
  * All rights reserved.
  * 
  * This program is free software; you can redistribute it and/or modify
@@ -2666,17 +2665,15 @@ ITM;
 
 typedef struct INPUTCONTEXT
 {
-  char *szFilename;
-  FILE *fh;
-  int line;
+  FILELINE file;
   char buffer[4096];
   char *pch;
   const char *pchLex;
+  BOOL fPendingTok;
+  TOK pendingTok;
 }
 INPUTCONTEXT;
 
-extern BOOL fTokUngotten;
-extern TOK tokPrev;
 extern TOK tok;
 extern INPUTCONTEXT vIn;
 
@@ -2738,16 +2735,17 @@ extern BOOL vfStripNoLocRes;
 #define kGsiHeight     10
 
 void ParseToFinalEnd(void);
-BOOL ObjectDesiredInOutputLocale(const ITM * itm);
 void ParseItm(ITM * pitm,
               int grif,
               int grif2,
               int grif3,
               int grif4);
-BOOL FGetTok(TOK * ptok);
+BOOL FGetTok(TOK *ptok);
 VOID UngetTok(void);
+const TOK *PeekTok(void);
 int WGetConst(char *szErr);
-char *PchGetSz(char *szErr);
+BOOL FIsString(const TOK *ptok);
+char *PchGetString(const char *szErr);
 VOID GetExpectRw(RW rw);
 int WGetId(char *szErr);
 int WGetConstEx(char *szErr);

@@ -2,7 +2,7 @@
  * @(#)bitmap.c
  *
  * Copyright 1997-1999, Wes Cherry   (mailto:wesc@technosis.com)
- *           2000-2004, Aaron Ardiri (mailto:aaron@ardiri.com)
+ *           2000-2005, Aaron Ardiri (mailto:aaron@ardiri.com)
  * All rights reserved.
  * 
  * This program is free software; you can redistribute it and/or modify
@@ -28,6 +28,8 @@
  *                 GNU GPL documentation additions
  *     18-Aug-2003 Ben Combee
  *                 Applied Eric Clonniger's fix for 32-bit BMPs
+ *        Feb-2007 Alexander Pruss
+ *                 LE32 fixes
  */
 
 #include <stdlib.h>
@@ -69,14 +71,14 @@ typedef struct BITMAPFILEHEADER
 typedef struct BITMAPINFOHEADER
 {
   PILRC_ULONG biSize;
-  long biWidth;
-  long biHeight;
+  PILRC_ULONG biWidth;
+  PILRC_ULONG biHeight;
   PILRC_USHORT biPlanes;
   PILRC_USHORT biBitCount;
   PILRC_ULONG biCompression;
   PILRC_ULONG biSizeImage;
-  long biXPelsPerMeter;
-  long biYPelsPerMeter;
+  PILRC_ULONG biXPelsPerMeter;
+  PILRC_ULONG biYPelsPerMeter;
   PILRC_ULONG biClrUsed;
   PILRC_ULONG biClrImportant;
 } BITMAPINFOHEADER;
@@ -144,7 +146,7 @@ int PalmPalette4bppColor[16][3] =
  */
 int PalmPalette8bpp[256][3] = 
 {
-  { 255, 255, 255 }, { 255, 204, 255 }, { 255, 153, 255 }, { 255, 102, 255 }, 
+  { 255, 255, 255 }, { 255, 204, 255 }, { 255, 153, 255 }, { 255, 102, 255 },
   { 255,  51, 255 }, { 255,   0, 255 }, { 255, 255, 204 }, { 255, 204, 204 }, 
   { 255, 153, 204 }, { 255, 102, 204 }, { 255,  51, 204 }, { 255,   0, 204 }, 
   { 255, 255, 153 }, { 255, 204, 153 }, { 255, 153, 153 }, { 255, 102, 153 }, 
@@ -1186,12 +1188,6 @@ BMP_ConvertWindowsBitmap(RCBITMAP * rcbmp,
     case rwBitmap:
     case rwBitmapGrey:
     case rwBitmapGrey16:
-      rcbmp->pixelsize = cbitsPel;
-      rcbmp->version = 1;
-      if (vfLE32)
-        rcbmp->version |= LE_BITMAP_VERSION_MASK;
-      break;
-
     case rwBitmapColor16:
 
       rcbmp->pixelsize = cbitsPel;
@@ -1242,8 +1238,18 @@ BMP_ConvertWindowsBitmap(RCBITMAP * rcbmp,
         rcbmp->flags.hasColorTable = fTrue;
 
         tmpPtr = rcbmp->pbBits;
-        *tmpPtr++ = 0x01;
-        *tmpPtr++ = 0x00;
+        if ( vfLE32 ) {
+            /* 0x100 in 32-bit littleendian */
+            *tmpPtr++ = 0x00;
+            *tmpPtr++ = 0x01;
+            *tmpPtr++ = 0x00;
+            *tmpPtr++ = 0x00;
+        }
+        else {
+            /* 0x100 in 16-bit bigendian */
+            *tmpPtr++ = 0x01;
+            *tmpPtr++ = 0x00;
+        }
 
         // extract the color table (the number we have)
         for (i = 0; i < numClrs; i++)
@@ -2421,7 +2427,10 @@ BMP_FillBitmapV3Header(RCBITMAP * rcbmp,
     if (vfLE32)
     {
       if (rcbmp->pixelsize <= 8)
-        rcbmpv3->pixelFormat = pixelFormatIndexedLE;
+        /* Palm/Sony devices don't support pixelFormatIndexedLE,
+           so do pixelFormatIndexed--which is the same, since
+           there is no LE/BE difference for 8-bits! */
+        rcbmpv3->pixelFormat = pixelFormatIndexed; 
       else
         rcbmpv3->pixelFormat = pixelFormat565LE;
     }

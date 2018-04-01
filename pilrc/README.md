@@ -1,2 +1,0 @@
-# pilrc
-Pilot Resource Compiler

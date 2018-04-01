@@ -2,7 +2,7 @@
  * @(#)pilrc.c
  *
  * Copyright 1997-1999, Wes Cherry   (mailto:wesc@technosis.com)
- *           2000-2004, Aaron Ardiri (mailto:aaron@ardiri.com)
+ *           2000-2005, Aaron Ardiri (mailto:aaron@ardiri.com)
  * All rights reserved.
  * 
  * This program is free software; you can redistribute it and/or modify
@@ -304,8 +304,6 @@ SYM *psymFirst;
 /*
  * Parse globals 
  */
-BOOL fTokUngotten;
-TOK tokPrev;
 TOK tok;
 INPUTCONTEXT vIn;
 
@@ -540,7 +538,7 @@ NextLine(void)
     int buflen = strlen(vIn.pch);
     memmove(vIn.buffer, vIn.pch, buflen + 1);
     vIn.pch = vIn.buffer;
-    fgets(&vIn.buffer[buflen], sizeof vIn.buffer - buflen, vIn.fh);
+    fgets(&vIn.buffer[buflen], sizeof vIn.buffer - buflen, vIn.file.fh);
 
     eoln = strpbrk(vIn.pch, "\n\x0a\x0d");
     if (eoln == NULL)
@@ -558,7 +556,7 @@ NextLine(void)
   *eoln = '\0';
 
   if (!fEof)
-    vIn.line++;
+    vIn.file.line++;
 
   FInitLexer(vIn.pch, fTrue);
   vIn.pch = pchNext;
@@ -568,21 +566,22 @@ NextLine(void)
 /*-----------------------------------------------------------------------------
 |	FGetTok
 |
-|		Get the next token.  returns fFalse and .rw=rwNil on EOF
+|		Get the next token.
+|		Returns fFalse, .lex.lt=ltNil, and .rw=rwNil on EOF.
 |
 |	Consistency issue -- takes a ptok, but some other other routines don't.
 |	only one global tok...
 -------------------------------------------------------------WESC------------*/
 BOOL
-FGetTok(TOK * ptok)
+FGetTok(TOK *ptok)
 {
   BOOL fInComment;
 
-  if (fTokUngotten)
+  if (vIn.fPendingTok)
   {
-    *ptok = tokPrev;
-    fTokUngotten = fFalse;
-    return fTrue;
+    *ptok = vIn.pendingTok;
+    vIn.fPendingTok = fFalse;
+    return ptok->lex.lt != ltNil;
   }
 
   ptok->rw = rwNil;
@@ -595,6 +594,8 @@ FGetTok(TOK * ptok)
       {
         if (fInComment)
           ErrorLine("unexpected end of file during C-style comment");
+        ptok->lex.lt = ltNil;
+        vIn.pendingTok = *ptok;
         return fFalse;
       }
     }
@@ -628,7 +629,7 @@ FGetTok(TOK * ptok)
       strcpy(ptok->lex.szId, pte->szTrans);
   }
 
-  tokPrev = *ptok;
+  vIn.pendingTok = *ptok;
   return fTrue;
 }
 
@@ -636,40 +637,30 @@ FGetTok(TOK * ptok)
 |	UngetTok
 |	
 |		Pushback one token.  Note! that this is 1 level only!
-|
-| Notes from JohnM:
-|	Pushing back EOF doesn't work: it leads to old tokens reappearing
-|	in the token stream.  Only use UngetTok() if you are sure that the
-|	preceding FGetTok() didn't return fFalse.
-|	FIXME: It might be easier to make unget-EOF Just Work, which would
-|	be tantamount to making EOF a real token.
 -------------------------------------------------------------WESC------------*/
 VOID
 UngetTok(void)
 {
-  tok = tokPrev;
-  fTokUngotten = fTrue;
+  vIn.fPendingTok = fTrue;
 }
 
-static const TOK *
-FPeekTok(void)
+/*-----------------------------------------------------------------------------
+|	PeekTok
+-------------------------------------------------------------JohnM-----------*/
+const TOK *
+PeekTok(void)
 {
-  if (FGetTok(&tok))
-    UngetTok();
-  else
-  {
-    tok.rw = rwNil;
-    tok.lex.lt = ltNil;
-  }
-
+  FGetTok(&tok);
+  UngetTok();
   return &tok;
 }
 
 /*-----------------------------------------------------------------------------
 |	GetExpectLt
 |	
-|		Get a token and expect a particular lex type.  Emit szErr if it isn't
-|	what's expected
+|		Get a token and expect a particular lex type.
+|		Emit szErr if it isn't what's expected.
+|		DO NOT use with lt==ltStr; use PchGetString() instead.
 -------------------------------------------------------------WESC------------*/
 static VOID
 GetExpectLt(TOK * ptok,
@@ -683,8 +674,6 @@ GetExpectLt(TOK * ptok,
     {
       if (lt == ltId)
         ErrorLine("Syntax error : expecting identifier, got %s",ptok->lex.szId);
-      else if (lt == ltStr)
-        ErrorLine("Syntax error : expecting string, got %s", ptok->lex.szId);
       else if (lt == ltConst)
         ErrorLine("Syntax error : expecting constant, got %s", ptok->lex.szId);
       else
@@ -713,119 +702,87 @@ GetExpectRw(RW rw)
     ErrorLine("%s expected, got %s", PchFromRw(rw, fTrue), tok.lex.szId);
 }
 
-static char* 
-PchCheckSymbol()
-{
-    if (!FGetTok(&tok))
-        ErrorLine("Unexpected end of file");
-    
-    if (rwNil == tok.rw && ltId == tok.lex.lt)
-    {
-        SYM* psym = PsymLookup(tok.lex.szId);
-        if (NULL == psym)
-            ErrorLine("Symbol %s is not defined", tok.lex.szId);
-        
-        if (NULL == psym->sVal)
-            ErrorLine("Symbol %s is numeric, a string value is required",
-                      psym->sz);
-        
-        return(strdup(psym->sVal));
-    }
-    
-    UngetTok();
-    return(NULL);
-}
-
-
 /*-----------------------------------------------------------------------------
-|	PchGetSz
-|	
-|		Get a quoted string.  return dup'ed string.  (remember to free!)
+|	FIsString
 |
-|   bwithers 3/22/03 - Mod to allow defined symbol to be used in addtion
-|                      to string literal.
--------------------------------------------------------------WESC------------*/
-char *
-PchGetSz(char *szErr)
+|		Returns true if the token could be the first token of
+|		a (possibly concatenated) string.
+-------------------------------------------------------------JohnM-----------*/
+BOOL
+FIsString(const TOK *ptok)
 {
-    char* p = PchCheckSymbol();
-    if (NULL != p)
-        return(p);
-     
-    GetExpectLt(&tok, ltStr, szErr);
-    return(strdup(tok.lex.szId));
+  if (ptok->lex.lt == ltStr)
+    return fTrue;
+  else if (ptok->lex.lt == ltId && ptok->rw == rwNil)
+  {
+    const SYM *psym = PsymLookup(ptok->lex.szId);
+    return psym && psym->sVal;
+  }
+  else
+    return fFalse;
 }
 
-#ifdef DOESNTWORK
-
-/*
- * attempt at allowing GCC preprocessed string files 
- */
-
 /*-----------------------------------------------------------------------------
-|	PchGetSzMultiLine
-|	
-|   gets strings on multiple lines w/ \ continuation character.
--------------------------------------------------------------WESC------------*/
-static char *
-PchGetSzMultiLine(char *szErr)
+|	PchGetString
+|
+|		Get a string (which should be free()ed by the caller),
+|		which may include concatenation and/or string #defines.
+-------------------------------------------------------------JohnM-----------*/
+char *
+PchGetString(const char *szErr)
 {
-  char sz[szMultipleLineMaxLength];
-  char* p = PchCheckSymbol();
-  if (NULL != p)
-      return(p);
+  char *szOut = NULL;
+  size_t outlen = 0;
 
-  GetExpectLt(&tok, ltStr, szErr);
-  strcpy(sz, tok.lex.szId);
-  while (FGetTok(&tok))
+  for (;;)
   {
-    if (tok.lex.lt == ltStr)
+    const char *szSingle = NULL;
+    const TOK *ptok;
+
+    if (!FGetTok(&tok))
+      ErrorLine("end of file %s %s", szOut? "in" : "when expecting", szErr);
+    else if (tok.lex.lt == ltStr)
+      szSingle = tok.lex.szId;
+    else if (tok.lex.lt == ltId && tok.rw == rwNil)
     {
-      strcat(sz, tok.lex.szId);
-    }
-    else if (tok.lex.lt != ltBSlash)
-    {
-      UngetTok();
-      break;
+      const SYM *psym = PsymLookup(tok.lex.szId);
+      if (psym == NULL)
+        ErrorLine("undefined symbol '%s' in %s", tok.lex.szId, szErr);
+      else if (psym->sVal == NULL)
+        ErrorLine("numeric symbol '%s' in %s", tok.lex.szId, szErr);
+      else
+        szSingle = psym->sVal;
     }
     else
     {
-      GetExpectLt(&tok, ltStr, szErr);
-      strcat(sz, tok.lex.szId);
+      if (szOut)
+        ErrorLine("cannot concatenate '%s' onto %s", tok.lex.szId, szErr);
+      else
+        ErrorLine("expecting %s, got '%s'", szErr, tok.lex.szId);
     }
-    return strdup(sz);
-  }
-}  
-#else
 
-/*-----------------------------------------------------------------------------
-|	PchGetSzMultiLine
-|	
-|   gets strings on multiple lines w/ \ continuation character.
--------------------------------------------------------------WESC------------*/
-static char *
-PchGetSzMultiLine(char *szErr)
-{
-  char sz[8192];
-  char* p = PchCheckSymbol();
-  if (NULL != p)
-      return(p);
-  
-  GetExpectLt(&tok, ltStr, szErr);
-  strcpy(sz, tok.lex.szId);
-  while (FGetTok(&tok))
-  {
-    if (tok.lex.lt != ltBSlash)
+    if (szSingle)
     {
-      UngetTok();
-      break;
+      size_t singlelen = strlen(szSingle);
+      char *sz = realloc(szOut, outlen + singlelen + 1);
+      if (sz == NULL)
+        Error("String is larger than available memory");
+      else
+        szOut = sz;
+
+      strcpy(szOut + outlen, szSingle);
+      outlen += singlelen;
     }
-    GetExpectLt(&tok, ltStr, szErr);
-    strcat(sz, tok.lex.szId);
+
+    ptok = PeekTok();
+    if (ptok->lex.lt == ltPlus || ptok->lex.lt == ltBSlash)
+      FGetTok(&tok);
+    else
+      break;
   }
-  return strdup(sz);
+
+  return szOut;
 }
-#endif
 
 /*-----------------------------------------------------------------------------
 |	WGetConst
@@ -993,24 +950,24 @@ AddDefineSymbol(void)
     
     // save current line and check to see if we parse into another
     // line for the value -- if so, reject token and define as 0
-    current_line = vIn.line;
+    current_line = vIn.file.line;
     
     if (!FGetTok(&tok))
         ErrorLine("unexpected end of file");
     
-    if (current_line != vIn.line)
+    if (current_line != vIn.file.line)
     {
     	UngetTok();
     	AddSym(szId, 0);
     }
     else
     {
-	    if (ltStr == tok.lex.lt)
+	    if (FIsString(&tok))
 	    {
 			// support a string define that spans multiple lines
 			char *szText;
 			UngetTok();
-			szText = PchGetSzMultiLine("#define string");
+			szText = PchGetString("#define string");
 	        AddSymString(szId, szText);
 	        free(szText);
 	    }
@@ -1399,42 +1356,32 @@ ParseItm(ITM * pitm,
   if (grif & ifText)
   {
     pitm->grifOut |= ifText;
-    pitm->text = PchGetSzMultiLine("item string"); // BLC change PchGetSz to PchGetSzMultiLine
+    pitm->text = PchGetString("item string");
     pitm->cbText = strlen(pitm->text) + 1;
   }
   if (grif & ifMultText)
   {
-    char *pch;
-    char rgb[szMultipleLineMaxLength];
-
     pitm->grifOut |= ifMultText;
 
-	// BLC - to support "no strings" for a MultText type, need to peek 
-	// ahead and see if token is a string before entering string read loop
-	FGetTok(&tok);
-    if (tok.lex.lt == ltStr)
-    {
-	    pch = rgb;
-	    for (;;)
-	    {
-		  // BLC - check for buffer overflow before the strcpy
-	      size_t filled = pch - rgb;
-	      if (filled + strlen(tok.lex.szId) + 1 >= sizeof(rgb))
-	        ErrorLine("Hex string or String are too big");
+    pitm->text = NULL;
+    pitm->cbText = 0;
 
-	      strcpy(pch, tok.lex.szId);
-	      pitm->numItems++;
-	      pch += strlen(tok.lex.szId) + 1;
-	      if (!FGetTok(&tok))
-	        return;
-	      if (tok.lex.lt != ltStr)
-	        break;
-	    }
-	    pitm->text = malloc(pch - rgb);
-	    pitm->cbText = pch - rgb;
-	    memcpy(pitm->text, rgb, pch - rgb);
-	 }
-     UngetTok();
+    while (FIsString(PeekTok()))
+    {
+      char *pchSingle = PchGetString("item string");
+      size_t singleSize = strlen(pchSingle) + 1;
+      char *pch = realloc(pitm->text, pitm->cbText + singleSize);
+      if (pch == NULL)
+        ErrorLine("Strings are larger than available memory");
+      else
+        pitm->text = pch;
+
+      memcpy(pitm->text + pitm->cbText, pchSingle, singleSize);
+      pitm->cbText += singleSize;
+      pitm->numItems++;
+
+      free(pchSingle);
+    }
   }
 
   if (grif & ifId)
@@ -1722,15 +1669,15 @@ ParseItm(ITM * pitm,
 #ifdef PALM_INTERNAL
       case rwCreator:                           /* RMa addition */
         CheckGrif3(if3Creator);
-        pitm->creator = PchGetSz("creator");
+        pitm->creator = PchGetString("creator");
         break;
       case rwLanguage:                          /* RMa addition */
         CheckGrif3(if3Language);
-        pitm->language = PchGetSz("language");
+        pitm->language = PchGetString("language");
         break;
       case rwCountry:                           /* RMa addition */
         CheckGrif3(if3Country);
-        pitm->country = PchGetSz("country");
+        pitm->country = PchGetString("country");
         break;
       case rwScreen:                            /* RMa addition */
       case rwGraffiti:                          /* BUG! other types */
@@ -1775,11 +1722,11 @@ ParseItm(ITM * pitm,
         break;
       case rwCountryName:                       /* RMa addition */
         CheckGrif3(if3CountryName);
-        pitm->CountryName = PchGetSz("countryname");
+        pitm->CountryName = PchGetString("countryname");
         break;
       case rwName:                              /* RMa addition */
         CheckGrif3(if3Name);
-        pitm->Name = PchGetSz("name");
+        pitm->Name = PchGetString("name");
         break;
       case rwDateFormat:                        /* RMa addition */
         CheckGrif3(if3DateFormat);
@@ -1803,15 +1750,15 @@ ParseItm(ITM * pitm,
         break;
       case rwCurrencyName:                      /* RMa addition */
         CheckGrif3(if3CurrencyName);
-        pitm->CurrencyName = PchGetSz("currencyname");
+        pitm->CurrencyName = PchGetString("currencyname");
         break;
       case rwCurrencySymbol:                    /* RMa addition */
         CheckGrif3(if3CurrencySymbol);
-        pitm->CurrencySymbol = PchGetSz("currencysymbol");
+        pitm->CurrencySymbol = PchGetString("currencysymbol");
         break;
       case rwCurrencyUniqueSymbol:              /* RMa addition */
         CheckGrif3(if3CurrencyUniqueSymbol);
-        pitm->CurrencyUniqueSymbol = PchGetSz("currencyuniquesymbol");
+        pitm->CurrencyUniqueSymbol = PchGetString("currencyuniquesymbol");
         break;
       case rwCurrencyDecimalPlaces:             /* RMa addition */
         CheckGrif3(if3CurrencyDecimalPlaces);
@@ -1844,7 +1791,7 @@ ParseItm(ITM * pitm,
 #endif
       case rwLocale:                            /* RMa addition localisation management */
         CheckGrif3(if3Locale);
-        pitm->Locale = PchGetSz("locale");
+        pitm->Locale = PchGetString("locale");
         break;
 #ifdef PALM_INTERNAL
       case rwFontType:                          /* RMa 'NFNT' & 'fntm' */
@@ -1964,34 +1911,20 @@ ParseToFinalEnd(void)
   }
 }
 
+/*-----------------------------------------------------------------------------
+|	DesirableLocale
+|
+|		An object with a non-NULL locale is desired if
+|		that particular locale has been selected with -Loc;
+|		one without is desired depending only on -StripLoc.
+-------------------------------------------------------------JohnM-----------*/
 static BOOL
 DesirableLocale(const char *objlocale)
 {
   if (objlocale)
-    return szLocaleP == NULL || strcmp(objlocale, szLocaleP) == 0;
+    return szLocaleP && strcmp(objlocale, szLocaleP) == 0;
   else
     return ! vfStripNoLocRes;
-}
-
-/*
- * RMa add & debug : Code cleaning thank to JMa 
- *  add '->' instead of '.' for itm usage and remove not before vfStripNoLocRes
- *
- * FIXME: Remove this function; callers should use DesirableLocale() instead.
- * This function's return value is inverted compared to its name, and so it's
- * entirely incomprehensible :-(.
- */
-BOOL
-ObjectDesiredInOutputLocale(const ITM * itm)
-{
-  if (itm->Locale)
-    if (szLocaleP)
-      return strcmp(itm->Locale, szLocaleP);
-    else
-      return fTrue;
-  //              return szLocaleP == NULL || strcmp (itm->Locale, szLocaleP) == 0;
-  else
-    return vfStripNoLocRes;
 }
 
 #define CondEmitB(b)  /*lint -e{717}*/ do {if (fEmit) EmitB(b);} while (0)
@@ -2996,7 +2929,7 @@ FParseForm(RCPFILE * prcpf)
   /*
    * RMa localisation 
    */
-  if (ObjectDesiredInOutputLocale(&itm))
+  if (!DesirableLocale(itm.Locale))
   {
     ParseToFinalEnd();
     return fFalse;
@@ -3230,7 +3163,7 @@ FParsePullDown(RCPFILE * prcpfile)
   int previousID = 0;
 
   memset(&mpd, 0, sizeof(RCMENUPULLDOWN));
-  SETBAFIELD(mpd, title, PchGetSz("Popup title"));
+  SETBAFIELD(mpd, title, PchGetString("Popup title"));
   GetExpectRw(rwBegin);
   while (FGetTok(&tok))
   {
@@ -3279,7 +3212,7 @@ FParsePullDown(RCPFILE * prcpfile)
           int cch;
 
           UngetTok();
-          mi.itemStr = PchGetSz("Item Text");
+          mi.itemStr = PchGetString("Item Text");
           cch = strlen(mi.itemStr);
 
           // only apply special treatment if not requested
@@ -3304,16 +3237,13 @@ FParsePullDown(RCPFILE * prcpfile)
           mi.id = WGetId("CommandId");
           if (vfPalmRez)
             previousID = mi.id + 1;              // RMa 
-          if (FGetTok(&tok))
+          if (FIsString(PeekTok()))
           {
-            if (tok.rw == rwNil && tok.lex.lt == ltStr)
-            {
-              if (strlen(tok.lex.szId) != 1)
-                ErrorLine("CommandKey must be 1 character");
-              mi.command = toupper(tok.lex.szId[0]);
-            }
-            else
-              UngetTok();
+            char *key = PchGetString("CommandKey string");
+            if (strlen(key) != 1)
+              ErrorLine("CommandKey must be 1 character");
+            mi.command = toupper(key[0]);
+            free(key);
           }
           if (vfCheckDupes)
           {
@@ -3374,7 +3304,7 @@ FParseMenu(RCPFILE * prcpfile)
   /*
    * RMa localisation 
    */
-  if (ObjectDesiredInOutputLocale(&itm))
+  if (!DesirableLocale(itm.Locale))
   {
     ParseToFinalEnd();
     return fFalse;
@@ -3470,7 +3400,7 @@ ParseDumpAlert(RCPFILE * prcpfile)
   /*
    * RMa localisation 
    */
-  if (ObjectDesiredInOutputLocale(&itm))
+  if (!DesirableLocale(itm.Locale))
   {
     ParseToFinalEnd();
     return;
@@ -3508,10 +3438,10 @@ ParseDumpAlert(RCPFILE * prcpfile)
       case rwEnd:
         goto WriteAlert;
       case rwTTL:
-        pchTitle = PchGetSzMultiLine("Title Text");     // RMa change PchGetSz to PchGetSzMultiLine
+        pchTitle = PchGetString("Title Text");
         break;
       case rwMessage:
-        pchMessage = PchGetSzMultiLine("Message Text");
+        pchMessage = PchGetString("Message Text");
         break;
       case rwBTN:
       case rwButtons:                           /* button */
@@ -3557,33 +3487,19 @@ WriteAlert:
 static void
 ParseDumpVersion()
 {
-  int id;
-  char *pchVersion;
-
   // default version ID is 1 (it dont work otherwise) :P
-  id = 1;
-  if (FGetTok(&tok))
+  int id = (FIsString(PeekTok()))? 1 : WGetId("Version ResourceId");
+  char *pchVersion = PchGetString("Version Text");
+
+  if (DesirableLocale(NULL))
   {
-    UngetTok();
-    if (tok.lex.lt != ltStr)
-      id = WGetId("Version ResourceId");
+    OpenOutput(kPalmResType[kVerRscType], id);     /* RMa "tver" */
+    DumpBytes(pchVersion, strlen(pchVersion) + 1);
+    if (vfLE32)
+      PadWordBoundary();
+    CloseOutput();
   }
 
-  pchVersion = PchGetSz("Version Text");
-  /*
-   * RMa localisation 
-   */
-  if ((szLocaleP) && (vfStripNoLocRes))
-  {
-    if (pchVersion)
-      free(pchVersion);
-    return;
-  }
-  OpenOutput(kPalmResType[kVerRscType], id);     /* RMa "tver" */
-  DumpBytes(pchVersion, strlen(pchVersion) + 1);
-  if (vfLE32)
-    PadWordBoundary();
-  CloseOutput();
   free(pchVersion);
 }
 
@@ -3609,83 +3525,57 @@ ParseDumpStringTable()
   if (buf == NULL) Error("out of memory");
 
   ParseItm(&itm, ifId, if2Null, if3Locale, if4Null);
-  /*
-   * RMa localisation 
-   */
-  if (ObjectDesiredInOutputLocale(&itm))
-  {
-    while (FGetTok(&tok))                        /* parse to last string in string table */
-    {
-      if (tok.lex.lt == ltConst)
-        //                              if (tok.lex.val == 0)
-        //                                      break;
-        //                              else
-        continue;
-      else if (tok.lex.lt != ltStr)
-      {
-        UngetTok();
-        break;
-      }
-    }
-    free(buf);
-    return;
-  }
-
   id = itm.id;
   //  id = WGetId("StringTable ResourceId", fFalse);
-  if (vfCheckDupes)
+
+  if (DesirableLocale(itm.Locale))
   {
-    int iid;
-
-    for (iid = 0; iid < iidStringTableMac; iid++)       // RMa add for make difference between tSTR and tSTL string
-      if (rgidStringTable[iid] == id)            // RMa add for make difference between tSTR and tSTL string
-        ErrorLine("Duplicate StringTable Resource ID");
-  }
-  if (iidStringTableMac < iidStringTableMax)     // RMa add for make difference between tSTR and tSTL string
-    rgidStringTable[iidStringTableMac++] = id;   // RMa add for make difference between tSTR and tSTL string
-
-  GetExpectLt(&tok, ltStr, "String Text");
-  prefixString = strdup(tok.lex.szId);
-  if (prefixString == NULL) Error("out of memory");
-
-  GetExpectLt(&tok, ltStr, "String Text");
-  strcpy(buf, tok.lex.szId);
-  tot = strlen(tok.lex.szId) + 1;
-  numStrings++;
-
-  while (FGetTok(&tok))
-  {
-    int l;
-
-    if (tok.lex.lt != ltStr)
+    if (vfCheckDupes)
     {
-      UngetTok();
-      break;
-    }
+      int iid;
 
-    l = strlen(tok.lex.szId) + 1;
+      for (iid = 0; iid < iidStringTableMac; iid++)       // RMa add for make difference between tSTR and tSTL string
+        if (rgidStringTable[iid] == id)            // RMa add for make difference between tSTR and tSTL string
+          ErrorLine("Duplicate StringTable Resource ID");
+    }
+    if (iidStringTableMac < iidStringTableMax)     // RMa add for make difference between tSTR and tSTL string
+      rgidStringTable[iidStringTableMac++] = id;   // RMa add for make difference between tSTR and tSTL string
+  }
+
+  prefixString = PchGetString("Prefix string");
+
+  while (FIsString(PeekTok()))
+  {
+    char *pch = PchGetString("String text");
+    int l = strlen(pch) + 1;
     if (tot + l > 32768)
       ErrorLine("Sum of string lengths must be less than 32768");
 
-    strcpy(buf + tot, tok.lex.szId);
+    strcpy(buf + tot, pch);
     tot += l;
     numStrings++;
     if (numStrings >= 384)
       ErrorLine("Number of strings in table must be less than 384");
-  }
-  OpenOutput(kPalmResType[kStrListRscType], id); /* RMa "tSTL" */
-  DumpBytes(prefixString, strlen(prefixString) + 1);
-  if (vfLE32)
-  {
-    // RMa add  little hack for generate 68k format stringTable on LE32
-    EmitB((char)(((unsigned short)numStrings & 0xff00) >> 8));
-    EmitB((char)((unsigned short)numStrings & 0x00ff));
-  }
-  else
-    EmitW((unsigned short)numStrings);
 
-  DumpBytes(buf, tot);
-  CloseOutput();
+    free(pch);
+  }
+
+  if (DesirableLocale(itm.Locale))
+  {
+    OpenOutput(kPalmResType[kStrListRscType], id); /* RMa "tSTL" */
+    DumpBytes(prefixString, strlen(prefixString) + 1);
+    if (vfLE32)
+    {
+      // RMa add  little hack for generate 68k format stringTable on LE32
+      EmitB((char)(((unsigned short)numStrings & 0xff00) >> 8));
+      EmitB((char)((unsigned short)numStrings & 0x00ff));
+    }
+    else
+      EmitW((unsigned short)numStrings);
+
+    DumpBytes(buf, tot);
+    CloseOutput();
+  }
 
   free(prefixString);
   free(buf);
@@ -3704,44 +3594,28 @@ ParseDumpString()
   ITM itm;
 
   ParseItm(&itm, ifId, if2Null, if3Locale, if4Null);
-  /*
-   * RMa localisation 
-   */
-  if (ObjectDesiredInOutputLocale(&itm))
-  {
-    while (FGetTok(&tok))                        /* parse to last string in string table */
-    {
-      if ((tok.rw == rwFile) || (tok.lex.lt == ltBSlash)
-          || (tok.lex.lt == ltConst))
-        continue;
-      else if (tok.lex.lt != ltStr)
-      {
-        UngetTok();
-        break;
-      }
-    }
-    return;
-  }
-
   id = itm.id;
 
   pchString = NULL;
   //  id = WGetId("String ResourceId", fFalse);
 
-  if (vfCheckDupes)
+  if (DesirableLocale(itm.Locale))
   {
-    int iid;
-
-    for (iid = 0; iid < iidStringMac; iid++)
+    if (vfCheckDupes)
     {
-      if (rgidString[iid] == id)
+      int iid;
+
+      for (iid = 0; iid < iidStringMac; iid++)
       {
-        ErrorLine("Duplicate String Resource ID");
+        if (rgidString[iid] == id)
+        {
+          ErrorLine("Duplicate String Resource ID");
+        }
       }
     }
+    if (iidStringMac < iidStringMax)
+      rgidString[iidStringMac++] = id;
   }
-  if (iidStringMac < iidStringMax)
-    rgidString[iidStringMac++] = id;
 
   if (!FGetTok(&tok))
   {
@@ -3750,20 +3624,22 @@ ParseDumpString()
 
   if (tok.rw == rwFile)
   {
+    char *pchFilename = PchGetString("String filename");
     FILE *fh;
     int cch;
 
     pchString = malloc(szMultipleLineMaxLength);
-    GetExpectLt(&tok, ltStr, "String filename");
-    free(FindAndOpenFile(tok.lex.szId, "rt", &fh));
 
+    free(FindAndOpenFile(pchFilename, "rt", &fh));
     if (fh == NULL)
-      ErrorLine("Unable to open String file %s", tok.lex.szId);
+      ErrorLine("Unable to open String file %s", pchFilename);
+
     cch = fread(pchString, 1, szMultipleLineMaxLength, fh);
     if (cch == szMultipleLineMaxLength)
       ErrorLine("String too long!");
     pchString[cch] = 0;
     fclose(fh);
+    free(pchFilename);
   }
   else
   {
@@ -3772,7 +3648,7 @@ ParseDumpString()
      */
     if (tok.lex.lt != ltBSlash)
       UngetTok();
-    pchString = PchGetSzMultiLine("String Text");
+    pchString = PchGetString("String Text");
   }
 
   cch = strlen(pchString);                       // RMa add 
@@ -3806,9 +3682,13 @@ ParseDumpString()
     pString++;
   }
 
-  OpenOutput(kPalmResType[kStrRscType], id);     /* RMa "tSTR" */
-  DumpBytes(pchString, strlen(pchString) + 1);
-  CloseOutput();
+  if (DesirableLocale(itm.Locale))
+  {
+    OpenOutput(kPalmResType[kStrRscType], id);     /* RMa "tSTR" */
+    DumpBytes(pchString, strlen(pchString) + 1);
+    CloseOutput();
+  }
+
   free(pchString);
 }
 
@@ -3823,54 +3703,45 @@ ParseDumpCategories()
   ITM itm;
 
   ParseItm(&itm, ifId, if2Null, if3Locale, if4Null);
-  /*
-   * RMa localisation 
-   */
-  if (ObjectDesiredInOutputLocale(&itm))
-  {
-    while (FGetTok(&tok))                        /* parse to last string in string table */
-    {
-      if (tok.lex.lt != ltStr)
-      {
-        UngetTok();
-        break;
-      }
-    }
-    return;
-  }
   id = itm.id;
 
-  if (vfCheckDupes)
+  if (DesirableLocale(itm.Locale))
   {
-    int iid;
-
-    for (iid = 0; iid < iidAISMac; iid++)
+    if (vfCheckDupes)
     {
-      if (rgidAIS[iid] == id)
+      int iid;
+
+      for (iid = 0; iid < iidAISMac; iid++)
       {
-        ErrorLine("Duplicate Categories Resource ID");
+        if (rgidAIS[iid] == id)
+        {
+          ErrorLine("Duplicate Categories Resource ID");
+        }
       }
     }
-  }
-  if (iidAISMac < iidAISMax)
-    //  rgidString[iidAISMac++] = id;
-    rgidAIS[iidAISMac++] = id;
+    if (iidAISMac < iidAISMax)
+      //  rgidString[iidAISMac++] = id;
+      rgidAIS[iidAISMac++] = id;
 
-  OpenOutput(kPalmResType[kAppInfoStringsRscType], id); /* RMa "tAIS" */
+    OpenOutput(kPalmResType[kAppInfoStringsRscType], id); /* RMa "tAIS" */
+  }
 
   count = 0;
-  GetExpectLt(&tok, ltStr, "String Text");
-  do
+
+  while (FIsString(PeekTok()))
   {
-    string = tok.lex.szId;
-    len = strlen(tok.lex.szId);
+    string = PchGetString("String Text");
+    len = strlen(string);
     /*
      * Check the size of the string and only write 15 character max 
      */
     if (len >= categoryLength)
       len = categoryLength - 1;
-    DumpBytes(string, len);
-    EmitB(0);
+    if (DesirableLocale(itm.Locale))
+    {
+      DumpBytes(string, len);
+      EmitB(0);
+    }
     if (count == maxCategories)
       WarningLine
         ("More than 16 strings in a Categories. Check it to be sure");
@@ -3899,23 +3770,21 @@ ParseDumpCategories()
      * }
      * count++;
      */
-    if (!FGetTok(&tok))
-      break;
+
+    free(string);
   }
-  while (tok.lex.lt == ltStr);
 
-  if (tok.lex.lt != ltNil)
-    UngetTok();
+  if (DesirableLocale(itm.Locale))
+  {
+    /*
+     * The AppInfo category structure expects exactly maxCategories 
+     * * strings, so write a null byte for any unspecified strings 
+     */
+    for (; count < maxCategories; count++)
+      EmitB(0);
 
-  /*
-   * The AppInfo category structure expects exactly maxCategories 
-   * * strings, so write a null byte for any unspecified strings 
-   */
-  for (; count < maxCategories; count++)
-    EmitB(0);
-
-  CloseOutput();
-
+    CloseOutput();
+  }
 }
 
 /*-----------------------------------------------------------------------------
@@ -4097,8 +3966,8 @@ ParseBitmapAttrs(BMPDEF *attr, FamilyItemAttr *eachAttr)
 
 	if (eachAttr)
 	{
-	  if (FPeekTok()->lex.lt == ltConst)
-	    while (FPeekTok()->lex.lt == ltConst)
+	  if (PeekTok()->lex.lt == ltConst)
+	    while (PeekTok()->lex.lt == ltConst)
 	      eachAttr[FindDepth(eachAttr, WGetConst("bitmap depth"))].compress
 		  = attr->compress;
 	  else
@@ -4146,7 +4015,7 @@ ParseBitmapAttrs(BMPDEF *attr, FamilyItemAttr *eachAttr)
 	break;
 
       case rwBitmapPalette:
-	fname = nullify(PchGetSz("Palette filename"));
+	fname = nullify(PchGetString("Palette filename"));
 	if (fname)
 	{
 	  attr->haspalette = fTrue;
@@ -4227,8 +4096,8 @@ ParseDumpBitmap(RW kind, BOOL begin_allowed)
 
   isicon = (kind == rwIcon || kind == rwIconSmall);
 
-  if (! isicon && FPeekTok()->lex.lt == ltStr)
-    restype = restype_freeme = PchGetSz("Resource Type");
+  if (! isicon && FIsString(PeekTok()))
+    restype = restype_freeme = PchGetString("Resource Type");
 
   if (isicon)
     resid = (kind == rwIcon)? 1000 : 1001;
@@ -4275,7 +4144,7 @@ ParseDumpBitmap(RW kind, BOOL begin_allowed)
       switch (tok.rw)
       {
 	case rwLocale:
-	  locale = PchGetSz("locale");
+	  locale = PchGetString("locale");
 	  break;
 
 	case rwNoCompress:
@@ -4292,7 +4161,7 @@ ParseDumpBitmap(RW kind, BOOL begin_allowed)
 	  break;
 
 	case rwRscType:
-	  restype = restype_freeme = PchGetSz("Resource Type");
+	  restype = restype_freeme = PchGetString("Resource Type");
 	  break;
 
 	case rwIncludeClut:
@@ -4307,7 +4176,7 @@ ParseDumpBitmap(RW kind, BOOL begin_allowed)
   if (resid == -1)
     ErrorLine ("Bitmap resource ID required");
 
-  if (tok.lex.lt == ltStr)
+  if (FIsString(&tok))
   {
     static const RW normalTypes[] = {
       rwBitmap, rwBitmapGrey, rwBitmapGrey16,
@@ -4358,19 +4227,19 @@ ParseDumpBitmap(RW kind, BOOL begin_allowed)
 
     UngetTok();
     ndx = 0;
-    while (FPeekTok()->lex.lt == ltStr || DecodeDepthRW(FPeekTok()->rw) != 0)
+    while (FIsString(PeekTok()) || DecodeDepthRW(PeekTok()->rw) != 0)
     {
-      if (FPeekTok()->lex.lt != ltStr)
+      if (! FIsString(PeekTok()))
       {
 	FGetTok(&tok);
 	ndx = FindDepth(eachAttr, DecodeDepthRW(tok.rw));
       }
 	
       if (ndx < maxfiles)
-	pchFileName[ndx++] = nullify(PchGetSz("Bitmap filename"));
+	pchFileName[ndx++] = nullify(PchGetString("Bitmap filename"));
       else
       {
-	free(PchGetSz("Bitmap filename"));
+	free(PchGetString("Bitmap filename"));
 	WarningLine("Excess bitmap filenames ignored.");
       }
     }
@@ -4399,7 +4268,7 @@ ParseDumpBitmap(RW kind, BOOL begin_allowed)
     {
       int ndx;
       BMPDEF cur = defattr;
-      cur.pchFileName = nullify(PchGetSz("Bitmap filename"));
+      cur.pchFileName = nullify(PchGetString("Bitmap filename"));
       ndx = ParseBitmapAttrs(&cur, NULL);
 
       if (ndx == -1)
@@ -4467,12 +4336,12 @@ ParseDumpLauncherCategory(void)
     }
     else if (tok.rw == rwLocale)
     {
-      pLocale = PchGetSz("locale");
+      pLocale = PchGetString("locale");
     }
-    else if (tok.lex.lt == ltStr)
+    else if (FIsString(&tok))
       {
         UngetTok();
-        pString = PchGetSz("taic");
+        pString = PchGetString("taic");
         break;
       }
     else
@@ -4482,30 +4351,17 @@ ParseDumpLauncherCategory(void)
   if (id == 0)
     id = 1000;
 
-  /*
-   * * RMa localisation 
-   */
-  if (pLocale)
+  if (DesirableLocale(pLocale))
   {
-    if (!szLocaleP)
-      goto CLEANUP;
-    else if (strcmp(pLocale, szLocaleP))
-      goto CLEANUP;
+    OpenOutput(kPalmResType[kDefaultCategoryRscType], id);      /* RMa "taic" */
+    DumpBytes(pString, strlen(pString) + 1);
+    //      RMa Remove padding is it no necessary padding. it done by prcbuild if needded
+    //      PadBoundary();
+    CloseOutput();
   }
-  else if (vfStripNoLocRes)
-    goto CLEANUP;
 
-  OpenOutput(kPalmResType[kDefaultCategoryRscType], id);        /* RMa "taic" */
-  DumpBytes(pString, strlen(pString) + 1);
-  //      RMa Remove padding is it no necessary padding. it done by prcbuild if needded
-  //      PadBoundary();
-  CloseOutput();
-
-CLEANUP:
-  if (pString)
   free(pString);
-  if (pLocale)
-    free(pLocale);
+  free(pLocale);
 }
 
 /*-----------------------------------------------------------------------------
@@ -4514,38 +4370,24 @@ CLEANUP:
 static void
 ParseDumpApplicationIconName()
 {
-  int id;
   char *pchString;
   ITM itm;
 
   ParseItm(&itm, ifId, if2Null, if3Locale, if4Null);
-  /*
-   * RMa localisation 
-   */
-  if (ObjectDesiredInOutputLocale(&itm))
+  pchString = PchGetString("Icon Name Text");
+
+  if (DesirableLocale(itm.Locale))
   {
-    while (FGetTok(&tok))                        /* parse to last string in string table */
-    {
-      if (tok.lex.lt != ltStr)
-      {
-        UngetTok();
-        break;
-      }
-    }
-    return;
+    OpenOutput(kPalmResType[kAinRscType], itm.id);     /* RMa "tAIN" */
+    DumpBytes(pchString, strlen(pchString) + 1);
+
+    // RMa this resource is align on 16 bits in the two world
+    //      Force 16 bit padding
+    PadWordBoundary();
+
+    CloseOutput();
   }
 
-  id = itm.id;
-
-  pchString = PchGetSz("Icon Name Text");
-  OpenOutput(kPalmResType[kAinRscType], id);     /* RMa "tAIN" */
-  DumpBytes(pchString, strlen(pchString) + 1);
-
-  // RMa this resource is align on 16 bits in the two world
-  //      Force 16 bit padding
-  PadWordBoundary();
-
-  CloseOutput();
   free(pchString);
 }
 
@@ -4555,34 +4397,21 @@ ParseDumpApplicationIconName()
 static void
 ParseDumpApplication()
 {
-  int id;
   char *pchString;
   ITM itm;
 
   ParseItm(&itm, ifId, if2Null, if3Locale, if4Null);
-  /*
-   * RMa localisation 
-   */
-  if (ObjectDesiredInOutputLocale(&itm))
-  {
-    while (FGetTok(&tok))                        /* parse to last string in string table */
-    {
-      if (tok.lex.lt != ltStr)
-      {
-        UngetTok();
-        break;
-      }
-    }
-    return;
-  }
-
-  id = itm.id;
-  pchString = PchGetSz("APPL");
+  pchString = PchGetString("APPL");
   if (strlen(pchString) != 4)
     ErrorLine("APPL resource must be 4 chars");
-  OpenOutput(kPalmResType[kApplicationType], id);       /* RMa "APPL" */
-  DumpBytes(pchString, 4);
-  CloseOutput();
+
+  if (DesirableLocale(itm.Locale))
+  {
+    OpenOutput(kPalmResType[kApplicationType], itm.id);       /* RMa "APPL" */
+    DumpBytes(pchString, 4);
+    CloseOutput();
+  }
+
   free(pchString);
 }
 
@@ -4611,15 +4440,13 @@ ParseDumpTrap()
   if (id < 1000)
     ErrorLine
       ("TRAP resource id must be >= 1000, see HackMaster documentation");
-  /*
-   * RMa localisation 
-   */
-  if ((szLocaleP) && (vfStripNoLocRes))
-    return;
 
-  OpenOutput(kPalmResType[kTrapType], id);       /* RMa "TRAP" */
-  EmitW((unsigned short)wTrap);
-  CloseOutput();
+  if (DesirableLocale(NULL))
+  {
+    OpenOutput(kPalmResType[kTrapType], id);       /* RMa "TRAP" */
+    EmitW((unsigned short)wTrap);
+    CloseOutput();
+  }
 }
 
 /*-----------------------------------------------------------------------------
@@ -4639,7 +4466,7 @@ ParseDumpFont()
 
   if (fontid < 128 || fontid > 255)
     ErrorLine("FontID invalid.  valid values: 128<=FontID<=255");
-  pchFileName = PchGetSz("Font Filename");
+  pchFileName = PchGetString("Font Filename");
 
   if (DesirableLocale(itm.Locale))
   {
@@ -4678,11 +4505,11 @@ ParseDumpFontFamily()
     if (tok.rw == rwBitmapDensity)
     {
       aFontFamilyEntries[densityCount].density = WGetConstEx("Density");
-      aFontFamilyEntries[densityCount].pchFileName = PchGetSz("Font Filename");
+      aFontFamilyEntries[densityCount].pchFileName = PchGetString("Font Filename");
     }
     else if (tok.rw == rwFont)
     {
-      aFontFamilyEntries[densityCount].pchFileName = PchGetSz("Font Filename");
+      aFontFamilyEntries[densityCount].pchFileName = PchGetString("Font Filename");
       GetExpectRw(rwBitmapDensity);
       aFontFamilyEntries[densityCount].density = WGetConstEx("Density");
     }
@@ -4714,70 +4541,43 @@ ParseDumpFontFamily()
 static void
 ParseDumpHex()
 {
-  char *pchResType;
-  int id;
+  char *pchResType = PchGetString("Resource Type");
   ITM itm;
 
-  // get the information from the .rcp entry
-  pchResType = PchGetSz("Resource Type");
   ParseItm(&itm, ifId, if2Null, if3Locale, if4Null);
-  /*
-   * RMa localisation 
-   */
-  if (ObjectDesiredInOutputLocale(&itm))
-  {
-    while (FGetTok(&tok))                        /* parse to last string in string table */
-    {
-      if ((tok.lex.lt != ltConst) && (tok.lex.lt != ltStr))
-      {
-        UngetTok();
-        break;
-      }
-    }
-  }
-  else
-  {
-    id = itm.id;
-    // write the data to file
-    OpenOutput(pchResType, id);
-    while (FGetTok(&tok))
-    {
-      // turn IDs into values
-      if (tok.lex.lt == ltId && tok.rw == rwNil)
-      {
-        SYM *psym;
 
-        psym = PsymLookup(tok.lex.szId);
-        if (psym == NULL)
-        {
-          if (vfAutoId)
-          {
-            psym = PsymAddSymAutoId(tok.lex.szId);
-          }
-          else
-          {
-            ErrorLine("Symbol %s is not defined", tok.lex.szId);
-          }
-        }
-        
-		if (psym->sVal != NULL)
-		{
-			// treat it like a string of bytes
-	        DumpBytes(psym->sVal, strlen(psym->sVal));
-	        continue;
-		}
-		else
-		{
-	        // make this look like a constant and continue
-	        // into next if statement
-	        tok.lex.lt = ltConst;
-	        tok.lex.val = psym->wVal;
-		}
-      }
-      
-      // we have a constant?
-      if (tok.lex.lt == ltConst)
+  if (DesirableLocale(itm.Locale))
+    OpenOutput(pchResType, itm.id);
+
+  for (;;)
+  {
+    const TOK *ptok = PeekTok();
+    if (FIsString(ptok))
+    {
+      char *pch = PchGetString("String Text");
+      if (DesirableLocale(itm.Locale))
+        DumpBytes(pch, strlen(pch));
+      free(pch);
+    }
+    else if (ptok->lex.lt == ltConst ||
+             (ptok->lex.lt == ltId && ptok->rw == rwNil))
+    {
+      /* We can't really use WGetConst() here, because we need the token
+         explicitly so that we can look at its size field.  */
+      FGetTok(&tok);
+      if (tok.lex.lt == ltId)
       {
+        const SYM *psym = PsymLookup(tok.lex.szId);
+        if (psym)
+        {
+          CheckNumericSymbol(psym);
+          tok.lex.val = psym->wVal;
+        }
+        else
+          ErrorLine("Symbol %s is not defined", tok.lex.szId);
+      }
+
+      if (DesirableLocale(itm.Locale))
          switch (tok.lex.size)
          {
            case lsLong:
@@ -4799,28 +4599,14 @@ ParseDumpHex()
                 EmitB((unsigned char)tok.lex.val);
                 break;
          }
-      }
-
-      // we have a string?
-      else if (tok.lex.lt == ltStr)
-      {
-        char *pchString;
-
-        UngetTok();
-        pchString = PchGetSzMultiLine("String Text");
-        DumpBytes(pchString, strlen(pchString));
-        free(pchString);
-      }
-
-      // we dunno, assume "end" of resource
-      else
-      {
-        UngetTok();
-        break;
-      }
     }
-    CloseOutput();
+    else  // Something else (including EOF) -- end of resource
+      break;
   }
+
+  if (DesirableLocale(itm.Locale))
+    CloseOutput();
+
   free(pchResType);
 }
 
@@ -4830,40 +4616,23 @@ ParseDumpHex()
 static void
 ParseDumpData()
 {
-  char *pchResType;
-  int id;
-  char *pchFileName = NULL;
+  char *pchResType, *pchFileName;
   ITM itm;
 
   // get the information from the .rcp entry
-  pchResType = PchGetSz("Resource Type");
+  pchResType = PchGetString("Resource Type");
   ParseItm(&itm, ifId, if2Null, if3Locale, if4Null);
-  /*
-   * RMa localisation 
-   */
-  if (ObjectDesiredInOutputLocale(&itm))
-  {
-    while (FGetTok(&tok))                        /* parse to last string in string table */
-    {
-      if (tok.lex.lt != ltStr)
-      {
-        UngetTok();
-        break;
-      }
-    }
-  }
+  pchFileName = PchGetString("Data Filename");
+
+  // file name available?
+  if ((pchFileName == NULL) || (strcmp(pchFileName, "") == 0))        /* RMa bug correction invert test */
+    ErrorLine("Empty or no file name provided");
   else
   {
-    id = itm.id;
-    pchFileName = PchGetSz("Data Filename");
-
-    // file name available?
-    if ((pchFileName == NULL) || (strcmp(pchFileName, "") == 0))        /* RMa bug correction invert test */
-      ErrorLine("Empty or no file name provided");
-    else
+    if (DesirableLocale(itm.Locale))
     {
       // write the data to file
-      OpenOutput(pchResType, id);
+      OpenOutput(pchResType, itm.id);
       {
         int cch;
         char *data;
@@ -4887,10 +4656,9 @@ ParseDumpData()
       CloseOutput();
     }
   }
-  if (pchResType != NULL)
-    free(pchResType);
-  if (pchFileName != NULL)
-    free(pchFileName);
+
+  free(pchResType);
+  free(pchFileName);
 }
 
 /*-----------------------------------------------------------------------------
@@ -4899,31 +4667,20 @@ ParseDumpData()
 static void
 ParseDumpInteger()
 {
-  int id;
-  long nInteger;
   ITM itm;
 
   ParseItm(&itm, ifId, if2Value, if3Locale, if4Null);
-  /*
-   * RMa localisation 
-   */
-  if (ObjectDesiredInOutputLocale(&itm))
-  {
-    return;
-  }
 
-  /*
-   * Skip "value" if it's present.  
-   */
   if (!(itm.grif2Out & if2Value))
     itm.value = WGetConstEx("Integer Value");
 
-  id = itm.id;
-  nInteger = itm.value;
-  OpenOutput(kPalmResType[kConstantRscType], id);       /* "tint" */
-  EmitL(nInteger);
-
-  CloseOutput();
+  if (DesirableLocale(itm.Locale))
+  {
+    long nInteger = itm.value;
+    OpenOutput(kPalmResType[kConstantRscType], itm.id);       /* "tint" */
+    EmitL(nInteger);
+    CloseOutput();
+  }
 }
 
 /*-----------------------------------------------------------------------------
@@ -4971,7 +4728,7 @@ ParseDumpWordList(void)
   /*
    * RMa localisation 
    */
-  if (ObjectDesiredInOutputLocale(&itm))
+  if (!DesirableLocale(itm.Locale))
   {
     ParseToFinalEnd();
     return;
@@ -5007,7 +4764,7 @@ ParseDumpLongWordList(void)
   /*
    * RMa localisation 
    */
-  if (ObjectDesiredInOutputLocale(&itm))
+  if (!DesirableLocale(itm.Locale))
   {
     ParseToFinalEnd();
     return;
@@ -5045,7 +4802,7 @@ ParseDumpByteList(void)
   /*
    * RMa localisation 
    */
-  if (ObjectDesiredInOutputLocale(&itm))
+  if (!DesirableLocale(itm.Locale))
   {
     ParseToFinalEnd();
     return;
@@ -5117,24 +4874,19 @@ ParseDumpPaletteTable(void)
     ErrorLine("Palette table : incomplete color definitions");
 
   /*
-   * RMa localisation 
-   */
-  if ((szLocaleP) && (vfStripNoLocRes))
-  {
-    if (pData)
-      free(pData);
-    return;
-  }
-  /*
    * We write the datas to disk 
    */
-  OpenOutput(kPalmResType[kColorTableRscType], id);     /* RMa "tclt" */
-  if (vfLE32)
-    EmitL(counter);
-  else
-    EmitW((unsigned short)counter);
-  DumpBytes(pData, (counter * 4));
-  CloseOutput();
+  if (DesirableLocale(NULL))
+  {
+    OpenOutput(kPalmResType[kColorTableRscType], id);     /* RMa "tclt" */
+    if (vfLE32)
+      EmitL(counter);
+    else
+      EmitW((unsigned short)counter);
+    DumpBytes(pData, (counter * 4));
+    CloseOutput();
+  }
+
   free(pData);
 }
 
@@ -5150,7 +4902,7 @@ ParseDumpPalette()
   id = WGetId("Data ResourceId");
 
   // get the information from the .rcp entry
-  pchFileName = PchGetSz("Palette Filename");
+  pchFileName = PchGetString("Palette Filename");
 
   // file name available?
   if ((pchFileName == NULL) || (strcmp(pchFileName, "") == 0))
@@ -5192,12 +4944,9 @@ ParseDumpMidi(void)
 
   // get the information from the .rcp entry
   resId = WGetId("Midi ResourceId");
-  pFileName = PchGetSz("Data Filename");
+  pFileName = PchGetString("Data Filename");
 
-  /*
-   * RMa localisation 
-   */
-  if ((szLocaleP) && (vfStripNoLocRes))
+  if (!DesirableLocale(NULL))
   {
     if (pFileName != NULL)
       free(pFileName);
@@ -5270,7 +5019,7 @@ ParseApplicationPreferences(void)
   /*
    * RMa localisation 
    */
-  if (ObjectDesiredInOutputLocale(&itm))
+  if (!DesirableLocale(itm.Locale))
   {
     return;
   }
@@ -5302,12 +5051,14 @@ ParseTranslation()
   TE *pte = NULL;
   int i;
 
-  GetExpectLt(&tok, ltStr, "Language");
+  pch = PchGetString("Language");
 
   fAddTranslation = fFalse;
   for (i = 0; i < totalLanguages; i++)
-    if (FSzEqI(tok.lex.szId, aszLanguage[i]))
+    if (FSzEqI(pch, aszLanguage[i]))
       fAddTranslation = fTrue;
+
+  free(pch);
 
   GetExpectRw(rwBegin);
   while (FGetTok(&tok))
@@ -5318,15 +5069,16 @@ ParseTranslation()
       case rwEnd:
         return;
       case rwNil:
-        if (tok.lex.lt != ltStr)
+        if (! FIsString(&tok))
           ErrorLine("String Expected");
         if (fAddTranslation)
         {
           pte = malloc(sizeof(TE));
-          pte->szOrig = strdup(tok.lex.szId);
+          UngetTok();
+          pte->szOrig = PchGetString("Untranslated string");
         }
         GetExpectLt(&tok, ltAssign, "=");
-        pch = PchGetSzMultiLine("Translation");
+        pch = PchGetString("Translation");
         if (fAddTranslation)
         {
           pte->szTrans = pch;
@@ -5363,11 +5115,8 @@ ParseResetAutoID()
 static void
 ParseGenerateHeader()
 {
-    TOK tok;
-
-    GetExpectLt(&tok, ltStr, "Output header name");
     free(szOutputHeaderFile);
-    szOutputHeaderFile = MakeFilename("%s", tok.lex.szId);
+    szOutputHeaderFile = PchGetString("Output header name");
     vfAutoId = fTrue;
 }
 
@@ -5376,7 +5125,7 @@ ParseGenerateHeader()
 |	ParseNavigation: helper to parse OBJECT entries in a NAVIGATION res
 -------------------------------------------------------------BLC-------------*/
 static void
-ParseNavigationList(RCNAVIGATIONITEM **navigationItems, int *numItems)
+ParseNavigationList(RCNAVIGATIONITEM **navigationItems, p_int *numItems)
 {
   ITM itm;
   *numItems = 0;
@@ -5411,7 +5160,7 @@ ParseNavigationList(RCNAVIGATIONITEM **navigationItems, int *numItems)
 |	ParseNavigationMap: helper to parse NAVIGATIONMAP entries
 -------------------------------------------------------------BLC-------------*/
 static void
-ParseNavigationMap(RCNAVIGATIONITEM **navigationItems, int *numItems)
+ParseNavigationMap(RCNAVIGATIONITEM **navigationItems, p_int *numItems)
 {
   ITM itm;
   const TOK *pTok;
@@ -5457,7 +5206,7 @@ ParseNavigationMap(RCNAVIGATIONITEM **navigationItems, int *numItems)
 	        (itm.bigButton ? 0x8000 : 0);
 	        
 	      /* break if next token is "END" or "ROW" */
-	      pTok = FPeekTok();
+	      pTok = PeekTok();
 	      if (pTok && (pTok->rw == rwEnd || pTok->rw == rwRow))
 	        break;
   	  }
@@ -5496,20 +5245,12 @@ ParseNavigation(void)
   RCNAVIGATION navigation;
   RCNAVIGATIONITEM *navigationItems = NULL;
   ITM itm;
-  int resID = 0;
   int i;
   
   ParseItm(&itm, 
       ifId, if2Null, if3Vers | if3Locale,
       if4InitialState | if4InitialObjectID |
       if4JumpObjectID | if4BottomLeftObjectID);
-
-  if (ObjectDesiredInOutputLocale(&itm))
-  {
-    return;
-  }
-
-  resID = itm.id;
 
   if (itm.grif4Out & if3Vers && itm.version != 1)
   {
@@ -5540,13 +5281,17 @@ ParseNavigation(void)
   else
       Error("Expected BEGIN or NAVIGATIONMAP");
  
-  OpenOutput(kPalmResType[kNavigationType], resID);
-  CbEmitStruct(&navigation, szRCNAVIGATION, NULL, fTrue);
-  for (i = 0; i < navigation.numOfObjects; ++i)
+  if (DesirableLocale(itm.Locale))
   {
-    CbEmitStruct(navigationItems + i, szRCNAVIGATIONITEM, NULL, fTrue);
+    OpenOutput(kPalmResType[kNavigationType], itm.id);
+    CbEmitStruct(&navigation, szRCNAVIGATION, NULL, fTrue);
+    for (i = 0; i < navigation.numOfObjects; ++i)
+    {
+      CbEmitStruct(navigationItems + i, szRCNAVIGATIONITEM, NULL, fTrue);
+    }
+    CloseOutput();
   }
-  CloseOutput();
+
   free(navigationItems);
 }
 
@@ -5556,10 +5301,12 @@ ParseNavigation(void)
 static VOID
 OpenInputFile(const char *szIn)
 {
-  vIn.szFilename = FindAndOpenFile(szIn, "rt", &vIn.fh);
-  vIn.line = 0;
+  vIn.file.szFilename = FindAndOpenFile(szIn, "rt", &vIn.file.fh);
+  vIn.file.line = 0;
   vIn.buffer[0] = '\0';
   vIn.pch = vIn.buffer;
+  FInitLexer(NULL, fTrue);
+  vIn.fPendingTok = fFalse;
 }
 
 /*-----------------------------------------------------------------------------
@@ -5609,8 +5356,9 @@ ParseCInclude(const char *szIncludeFile)
                 {
                   if (depth < 32)
                   {
-                    GetExpectLt(&tok, ltStr, "include filename");
-                    ParseCInclude(tok.lex.szId);
+                    char *pchFilename = PchGetString("include filename");
+                    ParseCInclude(pchFilename);
+                    free(pchFilename);
                   }
                   else
                   {
@@ -5784,8 +5532,8 @@ ParseCInclude(const char *szIncludeFile)
     }
   }
 
-  fclose(vIn.fh);
-  free(vIn.szFilename);
+  fclose(vIn.file.fh);
+  free(vIn.file.szFilename);
   vIn = inSav;
 
   ifdefSkipping = ifdefSkippingSav;
@@ -5865,8 +5613,8 @@ ParseJavaInclude(char *szIncludeFile)
   }
 
 endOfClass:
-  fclose(vIn.fh);
-  free(vIn.szFilename);
+  fclose(vIn.file.fh);
+  free(vIn.file.szFilename);
   vIn = inSav;
 }
 
@@ -6231,8 +5979,8 @@ ParseRcpFile(const char *szRcpIn, RCPFILE * prcpfile)
   }
   while (FGetTok(&tok));
 
-  fclose(vIn.fh);
-  free(vIn.szFilename);
+  fclose(vIn.file.fh);
+  free(vIn.file.szFilename);
   vIn = inSav;
 
   ifdefSkipping = ifdefSkippingSav;
@@ -6247,12 +5995,12 @@ static void
 ParseLineDirective(BOOL fnameRequired)
 {
   // The constant given is for the *following* line
-  vIn.line = WGetConst("Line number constant") - 1;
+  vIn.file.line = WGetConst("Line number constant") - 1;
 
-  if (fnameRequired || FPeekTok()->lex.lt == ltStr)
+  if (fnameRequired || FIsString(PeekTok()))
   {
-    free(vIn.szFilename);
-    vIn.szFilename = PchGetSz("Input filename");
+    free(vIn.file.szFilename);
+    vIn.file.szFilename = PchGetString("Input filename");
   }
 }
 
@@ -6274,11 +6022,8 @@ ParseDirectives(RCPFILE * prcpfile)
         // ignore include files when skipping
         if (ifdefSkipping == 0)
         {
-          char *szFileName;
+          char *szFileName = PchGetString("include filename");
           const char *pchExt;
-
-          GetExpectLt(&tok, ltStr, "include filename");
-          szFileName = tok.lex.szId;
 
           pchExt = strrchr(szFileName, '.');
 	  if (pchExt)
@@ -6296,12 +6041,17 @@ ParseDirectives(RCPFILE * prcpfile)
 	    ParseRcpFile(szFileName, prcpfile);
 	  else
 	    ParseCInclude(szFileName);
+
+          free(szFileName);
         }
         break;
       }
     case rwDefine:
       {
-          AddDefineSymbol();
+          if (ifdefSkipping)
+            NextLine();
+          else
+            AddDefineSymbol();
           break;
       }
 
@@ -6515,8 +6265,7 @@ ParseFile(const char *szIn,
 
   OpenResFile(szResFile);
 
-  vIn.szFilename = NULL;
-  FInitLexer(NULL, fTrue);
+  vIn.file.szFilename = NULL;
 
   ParseRcpFile(szIn, prcpfile);
 
