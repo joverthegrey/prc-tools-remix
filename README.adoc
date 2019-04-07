@@ -46,7 +46,10 @@ sudo apt-get install \
     texinfo \
     flex \
     bison \
-    gperf
+    gperf \
+    autoconf \
+    libncurses-dev
+    
 
 git clone git@github.com:jichu4n/prc-tools-remix.git
 cd prc-tools-remix
@@ -75,7 +78,7 @@ brew install prc-tools
 
 See the relevant https://github.com/jichu4n/homebrew-palm-os[README] for details.
 
-To build from source on Mac OS X, assuming you have a sane build environment
+To build from source on Mac OS X, assuming you have a sane build environment(the linux dependencies listed above must be installed too)
 from http://brew.sh[Homebrew] / Xcode:
 
 [source,bash]
