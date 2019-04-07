@@ -35,6 +35,11 @@ Mac OS X systems.
 Building
 ^^^^^^^^
 
+Windows
++++++++
+
+Install Windows subsystem for Linux and follow the Linux path.
+
 Linux
 +++++
 
